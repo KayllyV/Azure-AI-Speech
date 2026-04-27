@@ -343,9 +343,26 @@ def process():
         if os.path.exists(filepath):
             os.remove(filepath)
  
- 
+@app.route("/telemetry-summary", methods=["GET"])
+def telemetry_summary():
+    return jsonify({
+        "status": "ok",
+        "message": "Telemetry is being collected in Application Insights.",
+        "tracked_metrics": [
+            "stt_confidence",
+            "stage.speech_to_text.latency_ms",
+            "stage.language_analysis.latency_ms",
+            "stage.text_to_speech.latency_ms"
+        ],
+        "tracked_spans": [
+            "stage.speech_to_text",
+            "stage.language_analysis",
+            "stage.text_to_speech"
+        ]
+    })
 # ---------------------------------------------------------------------------
+import os
  
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port)
