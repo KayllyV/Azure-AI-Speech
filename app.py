@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
  
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import azure.cognitiveservices.speech as speechsdk
 from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
@@ -9,8 +9,15 @@ import os
 import uuid
 import threading
 import json
+import base64
  
 app = Flask(__name__)
+
+from flask import render_template
+
+@app.route("/")
+def index():
+    return render_template("index.html")
  
 # ---------------------------------------------------------------------------
 # Azure clients — created once at startup, reused across all requests
@@ -188,7 +195,75 @@ def save_audio_upload(audio_file) -> tuple[str, str]:
     audio_file.save(filepath)
     return filepath, ext
  
- 
+def build_summary(analysis_result):
+    key_phrases = analysis_result.get("key_phrases", [])
+    entities = analysis_result.get("entities", [])
+    sentiment = analysis_result.get("sentiment", {}).get("label", "unknown")
+
+    key_phrase_count = len(key_phrases)
+    entity_count = len(entities)
+
+    if key_phrases:
+        topics_text = ", ".join(key_phrases[:3])
+    else:
+        topics_text = "no major topics"
+
+    entity_categories = {}
+    for entity in entities:
+        category = entity.get("category", "Unknown")
+        entity_categories[category] = entity_categories.get(category, 0) + 1
+
+    if entity_categories:
+        entity_parts = [f"{count} {category}" for category, count in entity_categories.items()]
+        entity_text = ", ".join(entity_parts)
+    else:
+        entity_text = "no named entities"
+
+    summary = (
+        f"Hey! Your memo mentions {key_phrase_count} key topic"
+        f"{'s' if key_phrase_count != 1 else ''}: {topics_text}. "
+        f"The overall tone is {sentiment}. "
+        f"I also detected {entity_count} named entit"
+        f"{'ies' if entity_count != 1 else 'y'}, including {entity_text}."
+    )
+
+    return summary
+
+def synthesize_summary(summary_text: str) -> dict:
+    speech_config = speechsdk.SpeechConfig(
+        subscription=os.environ.get("AZURE_SPEECH_KEY"),
+        region=os.environ.get("AZURE_SPEECH_REGION")
+    )
+
+    speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3
+    )
+
+    synthesizer = speechsdk.SpeechSynthesizer(
+        speech_config=speech_config,
+        audio_config=None
+    )
+
+    result = synthesizer.speak_text_async(summary_text).get()
+
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        audio_base64 = base64.b64encode(result.audio_data).decode("utf-8")
+        return {
+            "summary_text": summary_text,
+            "audio_base64": audio_base64,
+            "char_count": len(summary_text),
+            "voice": "en-US-JennyNeural"
+        }
+
+    elif result.reason == speechsdk.ResultReason.Canceled:
+        cancellation = result.cancellation_details
+        raise RuntimeError(
+            f"TTS canceled: {cancellation.reason} - {cancellation.error_details}"
+        )
+
+    else:
+        raise RuntimeError("TTS failed for an unknown reason")
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -252,11 +327,13 @@ def process():
  
         # Stage 2 — Language Analysis
         language_result = analyze_text(stt_result["transcript"])
+
  
-        # Stage 3 — TTS (Part D placeholder)
-        # tts_result = synthesize_summary(language_result)  ← add in Part D
- 
-        return jsonify({**stt_result, **language_result})
+        # Stage 3 — TTS 
+        summary = build_summary(language_result)
+        tts_result = synthesize_summary(summary)
+
+        return jsonify({**stt_result, **language_result,"summary": summary,"tts": tts_result})
  
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500

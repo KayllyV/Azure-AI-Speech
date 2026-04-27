@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Voice Memo Analyzer</title>
+</head>
+<body>
+  <h1>Voice Memo Analyzer</h1>
+  <h2>Upload an audio file</h2>
+  <input type="file" id="audioFile" accept=".wav,.mp3,.ogg">
+  <button id="submitBtn">Submit</button>
+  <h2>Results</h2>
+  <pre id="results">No results yet.</pre>
+  <h2>Audio Summary</h2>
+  <audio id="audioPlayer" controls></audio>
+  <script>
+    document.getElementById("submitBtn").addEventListener("click", async () => {
+      const fileInput = document.getElementById("audioFile");
+      const resultsBox = document.getElementById("results");
+      const audioPlayer = document.getElementById("audioPlayer");
+      if (!fileInput.files.length) { resultsBox.textContent = "Please select a file first."; return; }
+      const formData = new FormData();
+      formData.append("audio", fileInput.files[0]);
+      resultsBox.textContent = "Processing...";
+      try {
+        const response = await fetch("/process", { method: "POST", body: formData });
+        const data = await response.json();
+        resultsBox.textContent = JSON.stringify(data, null, 2);
+        if (data.tts && data.tts.audio_base64) {
+          audioPlayer.src = "data:audio/mp3;base64," + data.tts.audio_base64.trim();
+          console.log("Src prefix:", audioPlayer.src.substring(0, 40));
+          audioPlayer.load();
+          audioPlayer.play().catch(() => console.log("Press play manually"));
+        }
+      } catch (error) { resultsBox.textContent = "Error: " + error; }
+    });
+  </script>
+</body>
+</html>
