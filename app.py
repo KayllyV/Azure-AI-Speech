@@ -15,6 +15,7 @@ import json
 import base64
 import subprocess
 
+
 app = Flask(__name__)
 
 # Get the meter — do this once at module level, outside any function
@@ -332,6 +333,18 @@ def analyze():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+meter = metrics.get_meter("speech_app")
+
+stt_metric = meter.create_histogram("stage_stt_ms")
+lang_metric = meter.create_histogram("stage_language_ms")
+tts_metric = meter.create_histogram("stage_tts_ms")
+
+def emit_pipeline_metrics(stt, lang, tts, timings, audio_format):
+    stt_metric.record(timings["stt_ms"])
+    lang_metric.record(timings["language_ms"])
+    tts_metric.record(timings["tts_ms"])
 
 @app.route("/process", methods=["POST"])
 def process():
