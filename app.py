@@ -34,30 +34,35 @@ stage_stt_hist = meter.create_histogram("stage_stt_ms")
 stage_language_hist = meter.create_histogram("stage_language_ms")
 stage_tts_hist = meter.create_histogram("stage_tts_ms")
 
-def emit_pipeline_metrics(stt_result, language_result, tts_result,
-stage_timings, audio_format): """Call this at the end of /process after all three stages complete."""
-attrs = {"audio_format": audio_format,
-"language": stt_result["language"]}
+def emit_pipeline_metrics(stt_result, language_result, tts_result, stage_timings, audio_format):
+    attrs = {
+        "audio_format": audio_format,
+        "language": stt_result["language"]
+    }
 
-# STT metrics
-stt_confidence_gauge.set(stt_result["confidence"], attrs)
-stt_duration_gauge.set(stt_result["duration_seconds"], attrs)
-stt_word_count_gauge.set(len(stt_result["transcript"].split()), attrs)
+    stt_confidence_gauge.set(stt_result["confidence"], attrs)
+    stt_duration_gauge.set(stt_result["duration_seconds"], attrs)
+    stt_word_count_gauge.set(len(stt_result["transcript"].split()), attrs)
 
-# Language metrics
-entity_count_gauge.set(len(language_result["entities"]), attrs)
-keyphrase_count_gauge.set(len(language_result["key_phrases"]), attrs)
-sentiment_map = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
-sentiment_gauge.set(
-sentiment_map.get(language_result["sentiment"]["label"], 0.0), attrs)
+    entity_count_gauge.set(len(language_result["entities"]), attrs)
+    keyphrase_count_gauge.set(len(language_result["key_phrases"]), attrs)
 
-# TTS metrics
-tts_char_count_gauge.set(tts_result["char_count"], attrs)
+    sentiment_map = {
+        "positive": 1.0,
+        "neutral": 0.0,
+        "negative": -1.0
+    }
 
-# Per-stage latency histograms
-stage_stt_hist.record(stage_timings["stt_ms"], attrs)
-stage_language_hist.record(stage_timings["language_ms"], attrs)
-stage_tts_hist.record(stage_timings["tts_ms"], attrs)
+    sentiment_gauge.set(
+        sentiment_map.get(language_result["sentiment"]["label"], 0.0),
+        attrs
+    )
+
+    tts_char_count_gauge.set(tts_result["char_count"], attrs)
+
+    stage_stt_hist.record(stage_timings["stt_ms"], attrs)
+    stage_language_hist.record(stage_timings["language_ms"], attrs)
+    stage_tts_hist.record(stage_timings["tts_ms"], attrs)
  
 @app.route("/")
 
