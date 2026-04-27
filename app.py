@@ -11,6 +11,17 @@ import threading
 import json
 import base64
 import subprocess
+from azure.monitor.opentelemetry import configure_azure_monitor
+
+def init_telemetry():
+    connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
+    if not connection_string:
+        print("Warning: No Application Insights connection string found")
+        return
+    configure_azure_monitor(connection_string=connection_string)
+    print("Application Insights initialized.")
+
+init_telemetry()
 
 app = Flask(__name__)
 
