@@ -1,11 +1,10 @@
 from dotenv import load_dotenv
 load_dotenv()
-
 from telemetry import init_telemetry
-
 init_telemetry()
-
 from flask import Flask, request, jsonify, render_template
+import time
+from opentelemetry import metrics
 import azure.cognitiveservices.speech as speechsdk
 from azure.ai.textanalytics import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
@@ -18,7 +17,56 @@ import subprocess
 
 app = Flask(__name__)
 
+# Get the meter — do this once at module level, outside any function
+meter = metrics.get_meter("memo-analyzer")
+
+# Create metric instruments — also at module level
+stt_confidence_gauge = meter.create_gauge("stt_confidence")
+stt_duration_gauge = meter.create_gauge("stt_duration_seconds")
+stt_word_count_gauge = meter.create_gauge("stt_word_count")
+entity_count_gauge = meter.create_gauge("language_entity_count")
+keyphrase_count_gauge = meter.create_gauge("language_keyphrase_count")
+sentiment_gauge = meter.create_gauge("language_sentiment")
+tts_char_count_gauge = meter.create_gauge("tts_char_count")
+
+stage_stt_hist = meter.create_histogram("stage_stt_ms")
+stage_language_hist = meter.create_histogram("stage_language_ms")
+stage_tts_hist = meter.create_histogram("stage_tts_ms")
+
+def emit_pipeline_metrics(stt_result, language_result, tts_result,
+stage_timings, audio_format): """Call this at the end of /process after all three stages complete."""
+attrs = {"audio_format": audio_format,
+"language": stt_result["language"]}
+
+# STT metrics
+stt_confidence_gauge.set(stt_result["confidence"], attrs)
+stt_duration_gauge.set(stt_result["duration_seconds"], attrs)
+stt_word_count_gauge.set(len(stt_result["transcript"].split()), attrs)
+
+# Language metrics
+entity_count_gauge.set(len(language_result["entities"]), attrs)
+keyphrase_count_gauge.set(len(language_result["key_phrases"]), attrs)
+sentiment_map = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
+sentiment_gauge.set(
+sentiment_map.get(language_result["sentiment"]["label"], 0.0), attrs)
+
+# TTS metrics
+tts_char_count_gauge.set(tts_result["char_count"], attrs)
+
+# Per-stage latency histograms
+stage_stt_hist.record(stage_timings["stt_ms"], attrs)
+stage_language_hist.record(stage_timings["language_ms"], attrs)
+stage_tts_hist.record(stage_timings["tts_ms"], attrs)
+ 
 @app.route("/")
+
+def timed_stage(fn, *args, **kwargs):
+    """Run fn(*args) and return (result, elapsed_ms)."""
+    start = time.perf_counter()
+    result = fn(*args, **kwargs)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    return result, elapsed_ms
+
 def index():
     return render_template("index.html")
 
@@ -292,21 +340,40 @@ def process():
         return jsonify({"error": "No audio file provided"}), 400
 
     try:
-        filepath, _ = save_audio_upload(audio_file)
+        filepath, ext = save_audio_upload(audio_file)
+        audio_format = ext
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except IOError as e:
         return jsonify({"error": str(e)}), 415
 
     try:
-        stt_result = transcribe_audio(filepath)
-        language_result = analyze_text(stt_result["transcript"])
-        summary = build_summary(language_result)
-        tts_result = synthesize_summary(summary)
+        # Stage 1 — Speech-to-Text
+        stt_result, stt_ms = timed_stage(transcribe_audio, filepath)
+
+        # Stage 2 — Language Analysis
+        lang_result, lang_ms = timed_stage(analyze_text, stt_result["transcript"])
+
+        # Stage 3 — Text-to-Speech
+        summary = build_summary(lang_result)
+        tts_result, tts_ms = timed_stage(synthesize_summary, summary)
+
+        # Emit metrics
+        emit_pipeline_metrics(
+            stt_result,
+            lang_result,
+            tts_result,
+            {
+                "stt_ms": stt_ms,
+                "language_ms": lang_ms,
+                "tts_ms": tts_ms
+            },
+            audio_format
+        )
 
         return jsonify({
             **stt_result,
-            **language_result,
+            **lang_result,
             "summary": summary,
             "tts": tts_result
         })
