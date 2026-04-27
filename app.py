@@ -1,6 +1,10 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+from telemetry import init_telemetry
+
+init_telemetry()
+
 from flask import Flask, request, jsonify, render_template
 import azure.cognitiveservices.speech as speechsdk
 from azure.ai.textanalytics import TextAnalyticsClient
@@ -11,17 +15,6 @@ import threading
 import json
 import base64
 import subprocess
-from azure.monitor.opentelemetry import configure_azure_monitor
-
-def init_telemetry():
-    connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
-    if not connection_string:
-        print("Warning: No Application Insights connection string found")
-        return
-    configure_azure_monitor(connection_string=connection_string)
-    print("Application Insights initialized.")
-
-init_telemetry()
 
 app = Flask(__name__)
 
