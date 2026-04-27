@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
- 
+
 from flask import Flask, request, jsonify, render_template
 import azure.cognitiveservices.speech as speechsdk
 from azure.ai.textanalytics import TextAnalyticsClient
@@ -10,66 +10,59 @@ import uuid
 import threading
 import json
 import base64
- 
-app = Flask(__name__)
+import subprocess
 
-from flask import render_template
+app = Flask(__name__)
 
 @app.route("/")
 def index():
     return render_template("index.html")
- 
-# ---------------------------------------------------------------------------
-# Azure clients — created once at startup, reused across all requests
-# ---------------------------------------------------------------------------
- 
+
 language_client = TextAnalyticsClient(
     endpoint=os.environ.get("AZURE_LANGUAGE_ENDPOINT"),
     credential=AzureKeyCredential(os.environ.get("AZURE_LANGUAGE_KEY"))
 )
- 
- 
-# ---------------------------------------------------------------------------
-# Helper: Speech-to-Text
-# Accepts a saved file path, returns the structured transcript dict.
-# Raises RuntimeError on transcription failure so callers can handle it.
-# ---------------------------------------------------------------------------
- 
+
 def transcribe_audio(filepath: str) -> dict:
     ext = filepath.rsplit(".", 1)[-1].lower()
- 
+
     speech_config = speechsdk.SpeechConfig(
         subscription=os.environ.get("AZURE_SPEECH_KEY"),
         region=os.environ.get("AZURE_SPEECH_REGION")
     )
     speech_config.request_word_level_timestamps()
     speech_config.output_format = speechsdk.OutputFormat.Detailed
- 
-    # Convert MP3/OGG to WAV so the SDK can read it
-    if ext in ("mp3", "ogg, webm"):
+
+    if ext in ("mp3", "ogg", "webm"):
         wav_path = filepath.rsplit(".", 1)[0] + ".wav"
-        os.system(f'ffmpeg -i "{filepath}" -ar 16000 -ac 1 -c:a pcm_s16le "{wav_path}" -y')
-        if not os.path.exists(wav_path):
-            raise RuntimeError(f"ffmpeg failed to convert {ext} to WAV")
+
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", filepath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0 or not os.path.exists(wav_path):
+            raise RuntimeError(f"ffmpeg failed: {result.stderr}")
+
         audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
-        # Clean up the converted file when we're done
         converted_path = wav_path
     else:
         audio_config = speechsdk.audio.AudioConfig(filename=filepath)
         converted_path = None
- 
+
     recognizer = speechsdk.SpeechRecognizer(
         speech_config=speech_config,
         audio_config=audio_config
     )
- 
+
     done = threading.Event()
     result_holder = {}
- 
+
     def on_recognized(evt):
         result_holder["result"] = evt.result
         done.set()
- 
+
     def on_canceled(evt):
         reason = evt.result.cancellation_details.reason
         if str(reason) == "CancellationReason.EndOfStream":
@@ -77,25 +70,25 @@ def transcribe_audio(filepath: str) -> dict:
         else:
             result_holder["error"] = str(reason)
             done.set()
- 
+
     recognizer.recognized.connect(on_recognized)
     recognizer.canceled.connect(on_canceled)
     recognizer.start_continuous_recognition()
     done.wait(timeout=30)
     recognizer.stop_continuous_recognition()
- 
+
     if converted_path and os.path.exists(converted_path):
         os.remove(converted_path)
- 
+
     if "error" in result_holder:
         raise RuntimeError(result_holder["error"])
     if "result" not in result_holder:
         raise RuntimeError("Transcription timed out — no result received within 30 s")
- 
+
     result = result_holder["result"]
     detail = json.loads(result.json) if result.json else {}
     best = detail.get("NBest", [{}])[0]
- 
+
     words = [
         {
             "word": w.get("Word", ""),
@@ -105,7 +98,7 @@ def transcribe_audio(filepath: str) -> dict:
         }
         for w in best.get("Words", [])
     ]
- 
+
     return {
         "transcript": result.text,
         "language": "en-US",
@@ -113,23 +106,17 @@ def transcribe_audio(filepath: str) -> dict:
         "confidence": round(best.get("Confidence", 0), 4),
         "words": words,
     }
- 
- 
-# ---------------------------------------------------------------------------
-# Helper: Language analysis
-# Accepts a plain text string, returns the structured analysis dict.
-# ---------------------------------------------------------------------------
- 
+
 def analyze_text(text: str) -> dict:
     documents = [text]
- 
+
     key_phrases_result = language_client.extract_key_phrases(documents)
     key_phrases = (
         key_phrases_result[0].key_phrases
         if not key_phrases_result[0].is_error
         else []
     )
- 
+
     ner_result = language_client.recognize_entities(documents)
     entities = [
         {
@@ -139,7 +126,7 @@ def analyze_text(text: str) -> dict:
         }
         for e in (ner_result[0].entities if not ner_result[0].is_error else [])
     ]
- 
+
     sentiment_result = language_client.analyze_sentiment(documents)
     s = sentiment_result[0]
     sentiment = {
@@ -150,35 +137,30 @@ def analyze_text(text: str) -> dict:
             "negative": round(s.confidence_scores.negative, 4),
         },
     }
- 
+
     linked_result = language_client.recognize_linked_entities(documents)
     linked_entities = [
         {"name": e.name, "url": e.url, "data_source": e.data_source}
         for e in (linked_result[0].entities if not linked_result[0].is_error else [])
     ]
- 
+
     return {
         "key_phrases": key_phrases,
         "entities": entities,
         "sentiment": sentiment,
         "linked_entities": linked_entities,
     }
- 
- 
-# ---------------------------------------------------------------------------
-# Helper: save an uploaded audio file and validate its format/size
-# Returns (filepath, ext) on success, raises ValueError / IOError on failure.
-# ---------------------------------------------------------------------------
- 
+
 def save_audio_upload(audio_file) -> tuple[str, str]:
     audio_file.seek(0, 2)
     size = audio_file.tell()
     audio_file.seek(0)
- 
+
     if size > 25 * 1024 * 1024:
         raise ValueError("File too large — max 25 MB")
- 
+
     name = audio_file.filename.lower()
+
     if name.endswith(".wav"):
         ext = "wav"
     elif name.endswith(".mp3"):
@@ -190,13 +172,13 @@ def save_audio_upload(audio_file) -> tuple[str, str]:
     elif name.endswith((".m4a", ".aac")):
         raise IOError("AAC/M4A not supported — please convert to WAV first")
     else:
-        raise IOError("Unsupported format — use WAV, MP3,,OGG or WEBM")
- 
+        raise IOError("Unsupported format — use WAV, MP3, OGG, or WEBM")
+
     os.makedirs("temp_audio", exist_ok=True)
     filepath = f"temp_audio/{uuid.uuid4()}.{ext}"
     audio_file.save(filepath)
     return filepath, ext
- 
+
 def build_summary(analysis_result):
     key_phrases = analysis_result.get("key_phrases", [])
     entities = analysis_result.get("entities", [])
@@ -221,15 +203,13 @@ def build_summary(analysis_result):
     else:
         entity_text = "no named entities"
 
-    summary = (
+    return (
         f"Hey! Your memo mentions {key_phrase_count} key topic"
         f"{'s' if key_phrase_count != 1 else ''}: {topics_text}. "
         f"The overall tone is {sentiment}. "
         f"I also detected {entity_count} named entit"
         f"{'ies' if entity_count != 1 else 'y'}, including {entity_text}."
     )
-
-    return summary
 
 def synthesize_summary(summary_text: str) -> dict:
     speech_config = speechsdk.SpeechConfig(
@@ -266,23 +246,20 @@ def synthesize_summary(summary_text: str) -> dict:
 
     else:
         raise RuntimeError("TTS failed for an unknown reason")
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
- 
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
- 
+
     try:
         filepath, _ = save_audio_upload(audio_file)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except IOError as e:
         return jsonify({"error": str(e)}), 415
- 
+
     try:
         result = transcribe_audio(filepath)
         return jsonify(result)
@@ -291,52 +268,45 @@ def transcribe():
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)
- 
- 
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.get_json()
     if not data or "text" not in data:
         return jsonify({"error": "Request body must include a 'text' field"}), 400
- 
+
     try:
         result = analyze_text(data["text"])
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
- 
- 
+
 @app.route("/process", methods=["POST"])
 def process():
-    """
-    Full pipeline: audio upload → Speech-to-Text → Language Analysis → (TTS in Part D)
-    Returns a single JSON object combining all stage results.
-    """
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
- 
+
     try:
         filepath, _ = save_audio_upload(audio_file)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except IOError as e:
         return jsonify({"error": str(e)}), 415
- 
-    try:
-        # Stage 1 — Speech-to-Text
-        stt_result = transcribe_audio(filepath)
- 
-        # Stage 2 — Language Analysis
-        language_result = analyze_text(stt_result["transcript"])
 
- 
-        # Stage 3 — TTS 
+    try:
+        stt_result = transcribe_audio(filepath)
+        language_result = analyze_text(stt_result["transcript"])
         summary = build_summary(language_result)
         tts_result = synthesize_summary(summary)
 
-        return jsonify({**stt_result, **language_result,"summary": summary,"tts": tts_result})
- 
+        return jsonify({
+            **stt_result,
+            **language_result,
+            "summary": summary,
+            "tts": tts_result
+        })
+
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     except Exception as e:
@@ -344,7 +314,7 @@ def process():
     finally:
         if os.path.exists(filepath):
             os.remove(filepath)
- 
+
 @app.route("/telemetry-summary", methods=["GET"])
 def telemetry_summary():
     return jsonify({
@@ -362,9 +332,7 @@ def telemetry_summary():
             "stage.text_to_speech"
         ]
     })
-# ---------------------------------------------------------------------------
-import os
- 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
