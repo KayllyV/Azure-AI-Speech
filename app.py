@@ -46,7 +46,7 @@ def transcribe_audio(filepath: str) -> dict:
     speech_config.output_format = speechsdk.OutputFormat.Detailed
  
     # Convert MP3/OGG to WAV so the SDK can read it
-    if ext in ("mp3", "ogg"):
+    if ext in ("mp3", "ogg, webm"):
         wav_path = filepath.rsplit(".", 1)[0] + ".wav"
         os.system(f'ffmpeg -i "{filepath}" -ar 16000 -ac 1 -c:a pcm_s16le "{wav_path}" -y')
         if not os.path.exists(wav_path):
@@ -185,10 +185,12 @@ def save_audio_upload(audio_file) -> tuple[str, str]:
         ext = "mp3"
     elif name.endswith(".ogg"):
         ext = "ogg"
+    elif name.endswith(".webm"):
+        ext = "webm"
     elif name.endswith((".m4a", ".aac")):
         raise IOError("AAC/M4A not supported — please convert to WAV first")
     else:
-        raise IOError("Unsupported format — use WAV, MP3, or OGG")
+        raise IOError("Unsupported format — use WAV, MP3,,OGG or WEBM")
  
     os.makedirs("temp_audio", exist_ok=True)
     filepath = f"temp_audio/{uuid.uuid4()}.{ext}"
