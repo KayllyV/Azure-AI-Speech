@@ -66,15 +66,15 @@ def emit_pipeline_metrics(stt_result, language_result, tts_result, stage_timings
  
 @app.route("/")
 
+def index():
+    return render_template("index.html")
+
 def timed_stage(fn, *args, **kwargs):
     """Run fn(*args) and return (result, elapsed_ms)."""
     start = time.perf_counter()
     result = fn(*args, **kwargs)
     elapsed_ms = (time.perf_counter() - start) * 1000
     return result, elapsed_ms
-
-def index():
-    return render_template("index.html")
 
 language_client = TextAnalyticsClient(
     endpoint=os.environ.get("AZURE_LANGUAGE_ENDPOINT"),
