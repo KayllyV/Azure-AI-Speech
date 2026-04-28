@@ -378,9 +378,13 @@ def emit_pipeline_event(
         span.record_exception(Exception(error_msg))
 
 @app.route("/process", methods=["POST"])
-def process():
-   
-    
+
+def process(): 
+
+    confidence = 0.85  # temporary placeholder value
+
+    metrics.track_metric("stt_confidence", confidence)
+
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
