@@ -378,12 +378,6 @@ def emit_pipeline_event(
 @app.route("/process", methods=["POST"])
 def process():
    
-    emit_pipeline_event(
-    stt_result=stt_result,
-    lang_result=lang_result,
-    audio_format=audio_format,
-    success=True
-)
     
     audio_file = request.files.get("audio")
     if not audio_file:
@@ -435,6 +429,7 @@ def process():
         error_msg=str(e)
         )
         return jsonify({"error": str(e)}), 500
+    
     except Exception as e:
         emit_pipeline_event(
         success=False,
