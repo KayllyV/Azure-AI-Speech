@@ -19,6 +19,8 @@ import subprocess
 
 app = Flask(__name__)
 
+tracer = trace.get_tracer("memo-analyzer")
+
 # Get the meter — do this once at module level, outside any function
 meter = metrics.get_meter("memo-analyzer")
 
@@ -400,7 +402,7 @@ def process():
             stt_result, stt_ms = timed_stage(transcribe_audio, filepath)
             stt_span.set_attribute("stt.confidence", stt_result["confidence"])
             stt_span.set_attribute("stt.word_count", len(stt_result["transcript"].split()))
-            tt_span.set_attribute("duration_ms", stt_ms)
+            stt_span.set_attribute("duration_ms", stt_ms)
 
         # Stage 2 — Language Analysis
         with tracer.start_as_current_span("stage.language_analysis") as lang_span:
