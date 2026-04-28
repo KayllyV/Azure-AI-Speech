@@ -4,4 +4,5 @@ __pycache__/
 *.pyc
 temp_audio/
 *.wav
-*.mp3
+*.mp3*.webm
+output.mp3
