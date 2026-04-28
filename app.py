@@ -382,7 +382,6 @@ def process():
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
-
     try:
         filepath, ext = save_audio_upload(audio_file)
         audio_format = ext
@@ -392,17 +391,33 @@ def process():
         return jsonify({"error": str(e)}), 415
 
     try:
+
+        with tracer.start_as_current_span("pipeline.process") as root_span:
+            root_span.set_attribute("audio.format", audio_format)
+
         # Stage 1 — Speech-to-Text
-        stt_result, stt_ms = timed_stage(transcribe_audio, filepath)
+        with tracer.start_as_current_span("stage.speech_to_text") as stt_span:
+            stt_result, stt_ms = timed_stage(transcribe_audio, filepath)
+            stt_span.set_attribute("stt.confidence", stt_result["confidence"])
+            stt_span.set_attribute("stt.word_count", len(stt_result["transcript"].split()))
+            tt_span.set_attribute("duration_ms", stt_ms)
 
         # Stage 2 — Language Analysis
-        lang_result, lang_ms = timed_stage(analyze_text, stt_result["transcript"])
+        with tracer.start_as_current_span("stage.language_analysis") as lang_span:
+            lang_result, lang_ms = timed_stage(analyze_text, stt_result["transcript"])
+            lang_span.set_attribute("entity_count", len(lang_result["entities"]))
+            lang_span.set_attribute("sentiment", lang_result["sentiment"]["label"])
+            lang_span.set_attribute("duration_ms", lang_ms)
 
         # Stage 3 — Text-to-Speech
-        summary = build_summary(lang_result)
-        tts_result, tts_ms = timed_stage(synthesize_summary, summary)
+        with tracer.start_as_current_span("stage.text_to_speech") as tts_span:
+            summary = build_summary(lang_result)
+            tts_result, tts_ms = timed_stage(synthesize_summary, summary)
+            tts_span.set_attribute("char_count", len(summary))
+            tts_span.set_attribute("duration_ms", tts_ms)
+    
 
-        # Emit metrics
+        # Emit all custom metrics and the complete event
         emit_pipeline_metrics(
             stt_result,
             lang_result,
@@ -413,6 +428,13 @@ def process():
                 "tts_ms": tts_ms
             },
             audio_format
+        )
+
+        emit_pipeline_event(
+            stt_result=stt_result,
+            lang_result=lang_result,
+            audio_format=audio_format,
+            success=True
         )
 
         return jsonify({
