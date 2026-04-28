@@ -35,8 +35,6 @@ Step 2: Create virtual enviornment
     python3 -m venv venv
     source venv/bin/activate
 
-    To have a seperate workspace from your Python packages to prevent weird errors
-
 Step 3: Install dependencies 
     pip install -r requirements.txt
 
