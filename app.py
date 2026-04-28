@@ -1,3 +1,4 @@
+from opentelemetry import trace
 from dotenv import load_dotenv
 load_dotenv()
 from telemetry import init_telemetry
@@ -351,8 +352,39 @@ def emit_pipeline_metrics(stt, lang, tts, timings, audio_format):
     lang_metric.record(timings["language_ms"])
     tts_metric.record(timings["tts_ms"])
 
+def emit_pipeline_event(
+    stt_result=None,
+    lang_result=None,
+    audio_format=None,
+    success=True,
+    error_stage=None,
+    error_msg=None
+):
+    span = trace.get_current_span()
+
+    if success:
+        span.set_attribute("event.name", "pipeline_completed")
+        span.set_attribute("stt.confidence", stt_result["confidence"])
+        span.set_attribute("stt.language", stt_result["language"])
+        span.set_attribute("entities.count", len(lang_result["entities"]))
+        span.set_attribute("sentiment", lang_result["sentiment"]["label"])
+        span.set_attribute("audio.format", audio_format)
+    else:
+        span.set_attribute("event.name", "pipeline_error")
+        span.set_attribute("error.stage", error_stage)
+        span.set_attribute("error.message", error_msg)
+        span.record_exception(Exception(error_msg))
+
 @app.route("/process", methods=["POST"])
 def process():
+   
+    emit_pipeline_event(
+    stt_result=stt_result,
+    lang_result=lang_result,
+    audio_format=audio_format,
+    success=True
+)
+    
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
@@ -397,8 +429,18 @@ def process():
         })
 
     except RuntimeError as e:
+        emit_pipeline_event(
+        success=False,
+        error_stage="runtime",
+        error_msg=str(e)
+        )
         return jsonify({"error": str(e)}), 500
     except Exception as e:
+        emit_pipeline_event(
+        success=False,
+        error_stage="runtime",
+        error_msg=str(e)
+        )
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
     finally:
         if os.path.exists(filepath):
