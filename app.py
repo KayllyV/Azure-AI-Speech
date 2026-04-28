@@ -343,17 +343,6 @@ def analyze():
         return jsonify({"error": str(e)}), 500
 
 
-meter = metrics.get_meter("speech_app")
-
-stt_metric = meter.create_histogram("stage_stt_ms")
-lang_metric = meter.create_histogram("stage_language_ms")
-tts_metric = meter.create_histogram("stage_tts_ms")
-
-def emit_pipeline_metrics(stt, lang, tts, timings, audio_format):
-    stt_metric.record(timings["stt_ms"])
-    lang_metric.record(timings["language_ms"])
-    tts_metric.record(timings["tts_ms"])
-
 def emit_pipeline_event(
     stt_result=None,
     lang_result=None,
@@ -380,10 +369,6 @@ def emit_pipeline_event(
 @app.route("/process", methods=["POST"])
 
 def process(): 
-
-    confidence = 0.85  # temporary placeholder value
-
-    metrics.track_metric("stt_confidence", confidence)
 
     audio_file = request.files.get("audio")
     if not audio_file:
