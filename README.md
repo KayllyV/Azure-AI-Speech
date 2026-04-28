@@ -1,7 +1,16 @@
+<<<<<<< HEAD
 **OVERVIEW**
 This project is a full end to end voice memo analyzer built using Azure AI services. It takes an audio input (either uploaded or recorded), transcribes it into text, analyzes the meaning, and then converts a summary back into speech. The pipeline is Audio then Speech-to-Text then Language Analysis then Text-to-Speech and lastly JSON + Audio OutputThis project was built using Flask (Python) and deployed to Azure App Service 
 
 
+=======
+__
+OVERVIEW 
+This project is a full end to end voice memo analyzer built using Azure AI services. It takes an audio input (either uploaded or recorded), transcribes it into text, analyzes the meaning, and then converts a summary back into speech. The pipeline is Audio then Speech-to-Text then Language Analysis then Text-to-Speech and lastly JSON + Audio OutputThis project was built using Flask (Python) and deployed to Azure App Service 
+__
+
+__
+>>>>>>> d73f009fedf86ab7235850e8b70f0f7461093810
 ARCHITECTURE 
 The system is a 3 stage pipeline. 
 
@@ -14,9 +23,15 @@ I also added:
 -Custom metrics (latency + confidence) 
 -Distributed tracing (pipeline spans) 
 -/telemetry-summary endpoint (in memory logging)
+<<<<<<< HEAD
 
 
 
+=======
+__
+
+__
+>>>>>>> d73f009fedf86ab7235850e8b70f0f7461093810
 SETUP INSTRUCTIONS 
 Step 1: Clone the repo git clone <your-repo-link> cd CSC391-AISpeech_Project 
 Step 2: Create virtual enviornment python3 -m venv venv source venv/bin/activate To have a seperate workspace from your Python packages to prevent weird errors 
@@ -70,9 +85,13 @@ Get Keys
     az cognitiveservices account keys list \ 
         --name csc391-speech \ 
         --resource-group csc391-speech-rg 
+<<<<<<< HEAD
 
 
 
+=======
+__
+>>>>>>> d73f009fedf86ab7235850e8b70f0f7461093810
 
 
 
