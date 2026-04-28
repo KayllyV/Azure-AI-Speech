@@ -1,3 +1,5 @@
+from collections import defaultdict
+import statistics
 from opentelemetry import trace
 from dotenv import load_dotenv
 load_dotenv()
@@ -16,6 +18,7 @@ import json
 import base64
 import subprocess
 
+session_log = []
 
 app = Flask(__name__)
 
@@ -370,6 +373,17 @@ def emit_pipeline_event(
 
 def process(): 
 
+    def log_pipeline_call(stt_result, lang_result, timings):
+        session_log.append({
+        "confidence": stt_result["confidence"],
+        "language": stt_result["language"],
+        "entity_count": len(lang_result["entities"]),
+        "sentiment": lang_result["sentiment"]["label"],
+        "stt_ms": timings["stt_ms"],
+        "language_ms": timings["language_ms"],
+        "tts_ms": timings["tts_ms"],
+    })
+
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
@@ -421,6 +435,16 @@ def process():
             audio_format
         )
 
+        log_pipeline_call(
+            stt_result,
+            lang_result,
+            {
+                "stt_ms": stt_ms,
+                "language_ms": lang_ms,
+                "tts_ms": tts_ms
+            }
+        )
+
         emit_pipeline_event(
             stt_result=stt_result,
             lang_result=lang_result,
@@ -456,20 +480,25 @@ def process():
 
 @app.route("/telemetry-summary", methods=["GET"])
 def telemetry_summary():
+    if not session_log:
+        return jsonify({"message": "No calls yet"})
+
+    confidences = [e["confidence"] for e in session_log]
+    stt_times = sorted([e["stt_ms"] for e in session_log])
+
+    p95_index = max(int(len(stt_times) * 0.95) - 1, 0)
+
     return jsonify({
-        "status": "ok",
-        "message": "Telemetry is being collected in Application Insights.",
-        "tracked_metrics": [
-            "stt_confidence",
-            "stage.speech_to_text.latency_ms",
-            "stage.language_analysis.latency_ms",
-            "stage.text_to_speech.latency_ms"
-        ],
-        "tracked_spans": [
-            "stage.speech_to_text",
-            "stage.language_analysis",
-            "stage.text_to_speech"
-        ]
+        "total_calls": len(session_log),
+        "avg_confidence": round(statistics.mean(confidences), 3),
+        "min_confidence": round(min(confidences), 3),
+        "p95_stt_ms": round(stt_times[p95_index], 1),
+        "sentiment_breakdown": {
+            "positive": sum(1 for e in session_log if e["sentiment"] == "positive"),
+            "neutral": sum(1 for e in session_log if e["sentiment"] == "neutral"),
+            "negative": sum(1 for e in session_log if e["sentiment"] == "negative"),
+        },
+        "calls": session_log[-10:]
     })
 
 if __name__ == "__main__":
